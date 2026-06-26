@@ -7,6 +7,7 @@ import { useTheme } from '@/context/ThemeContext';
 const navLinks = [
   { to: '/send', label: 'Send' },
   { to: '/receive', label: 'Receive' },
+  { to: '/vault', label: 'Vault' },
 ];
 
 export function Header() {
