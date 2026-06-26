@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useContext } from 'react';
 import { STELLAR_NETWORK } from '@/config';
+import { useStellarWallet as useStellarWalletHook } from '@/hooks/useStellarWallet';
 
 interface StellarWalletContextValue {
   address: string | null;
@@ -8,117 +9,46 @@ interface StellarWalletContextValue {
   disconnect: () => void;
   signMessage: (message: string) => Promise<Uint8Array>;
   signTransaction: (xdr: string) => Promise<string>;
+  openPicker: () => void;
+  closePicker: () => void;
+  walletId: string | null;
 }
 
 export const StellarWalletContext = createContext<StellarWalletContextValue | null>(null);
 
 export function StellarWalletProvider({ children }: { children: React.ReactNode }) {
-  const [address, setAddress] = useState<string | null>(null);
+  const stellarWallet = useStellarWalletHook();
 
-  const isConnected = !!address;
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const freighter = await import('@stellar/freighter-api');
-        const { isConnected: connected } = await freighter.isConnected();
-        if (connected) {
-          const { address: addr } = await freighter.getAddress();
-          if (addr) setAddress(addr);
-        }
-      } catch {
-        // Freighter not available
-      }
-    })();
-  }, []);
-
-  const connect = useCallback(async () => {
-    const freighter = await import('@stellar/freighter-api');
-    const { isConnected: connected } = await freighter.isConnected();
-    if (!connected) {
-      throw new Error(
-        'Freighter wallet not found. Please install the Freighter browser extension.',
-      );
-    }
-
-    await freighter.requestAccess();
-    const { address: addr } = await freighter.getAddress();
-    if (!addr) throw new Error('Failed to get public key from Freighter');
-    setAddress(addr);
-  }, []);
-
-  const disconnect = useCallback(() => {
-    setAddress(null);
-  }, []);
-
-  const signMessage = useCallback(
-    async (message: string): Promise<Uint8Array> => {
-      if (!address) throw new Error('Wallet not connected');
-
-      const freighter = await import('@stellar/freighter-api');
-      const { signedMessage } = await freighter.signMessage(message, {
-        address,
-        networkPassphrase: STELLAR_NETWORK.networkPassphrase,
-      });
-
-      if (!signedMessage) throw new Error('Signing failed: no signature returned');
-
-      // Freighter returns different types depending on version:
-      // - v3: Buffer (may arrive as serialized {type:'Buffer', data:[...]} through extension messaging)
-      // - v4: base64 string
-      // - could also be a raw Uint8Array/Buffer instance
-      const msg = signedMessage as unknown;
-
-      if (msg instanceof Uint8Array) {
-        return msg;
-      }
-
-      if (typeof msg === 'string') {
-        // base64 string
-        const binaryString = atob(msg);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes;
-      }
-
-      // Serialized Buffer: {type: 'Buffer', data: [1, 2, 3, ...]}
-      if (
-        msg &&
-        typeof msg === 'object' &&
-        'data' in msg &&
-        Array.isArray((msg as Record<string, unknown>).data)
-      ) {
-        return new Uint8Array((msg as { data: number[] }).data);
-      }
-
-      // Last resort: try to convert whatever it is
-      throw new Error(
-        `Unexpected signedMessage type: ${typeof msg} — ${JSON.stringify(msg).slice(0, 200)}`,
-      );
-    },
-    [address],
-  );
-
-  const signTransaction = useCallback(
-    async (xdr: string): Promise<string> => {
-      if (!address) throw new Error('Wallet not connected');
-
-      const freighter = await import('@stellar/freighter-api');
-      const { signedTxXdr } = await freighter.signTransaction(xdr, {
-        address,
-        networkPassphrase: STELLAR_NETWORK.networkPassphrase,
-      });
-
-      return signedTxXdr;
-    },
-    [address],
-  );
+  // Legacy signMessage - only supported by Freighter currently
+  const signMessage = async (message: string): Promise<Uint8Array> => {
+    // For now, signMessage is only implemented for Freighter
+    // Other wallets don't support arbitrary message signing in the same way
+    throw new Error('Message signing is currently only supported by Freighter wallet');
+  };
 
   return (
     <StellarWalletContext.Provider
-      value={{ address, isConnected, connect, disconnect, signMessage, signTransaction }}
+      value={{
+        address: stellarWallet.publicKey,
+        isConnected: stellarWallet.status === 'connected',
+        connect: async () => {
+          // If no wallet is selected, open picker
+          if (!stellarWallet.walletId) {
+            stellarWallet.openPicker();
+            return;
+          }
+          // Otherwise reconnect with existing wallet
+          if (stellarWallet.walletId) {
+            await stellarWallet.connect(stellarWallet.walletId);
+          }
+        },
+        disconnect: () => stellarWallet.disconnect(),
+        signMessage,
+        signTransaction: stellarWallet.signTransaction,
+        openPicker: stellarWallet.openPicker,
+        closePicker: stellarWallet.closePicker,
+        walletId: stellarWallet.walletId,
+      }}
     >
       {children}
     </StellarWalletContext.Provider>
