@@ -6,7 +6,6 @@ import {
   scValToNative,
   Address,
   xdr,
-  scValToNative,
 } from '@stellar/stellar-sdk';
 import { Buffer } from 'buffer';
 import { STELLAR_NETWORK } from '@/config';
@@ -211,6 +210,8 @@ function parseSimulationReturnValue(value: unknown, fallbackName: string): NameR
   }
 
   return normalizeNameRecordResult(value, fallbackName);
+}
+
 export interface NameAuction {
   name: string;
   commitEnd: number;
